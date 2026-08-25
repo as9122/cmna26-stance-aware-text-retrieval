@@ -15,7 +15,7 @@ from torch.utils.data import Sampler
 from collections import defaultdict
 import random
 
-# Command line arguments
+# Argument parsing
 parser = argparse.ArgumentParser(description="Run Data-Centric Stance Fine-Tuning")
 parser.add_argument("--model_name", type=str, default="Qwen3-Embedding-8B", choices=["BGE-Large", "Instructor-XL", "Qwen3-Embedding-8B"])
 parser.add_argument("--rank", type=int, default=None, help="LoRA rank")

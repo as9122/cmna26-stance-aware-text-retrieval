@@ -11,7 +11,7 @@ import textwrap
 import random
 from huggingface_hub import hf_hub_download
 
-# Command line arguments
+# Argument parsing
 parser = argparse.ArgumentParser(description="Generate word ablation heatmaps")
 parser.add_argument("--csv_path", type=str, required=True, 
                     help="Path to the word_ablation_results.csv file")

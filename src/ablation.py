@@ -19,7 +19,7 @@ DATASET_KEYS = [
     "tfu_validation_qwen"
 ]
 
-# Command line arguments
+# Argument parsing
 parser = argparse.ArgumentParser(description="Run word ablation analysis")
 parser.add_argument("--base_model", type=str, required=True, choices=["BGE-Large", "Instructor-XL", "Qwen3-Embedding-8B"], 
                     help="The base foundation model architecture to use.")
