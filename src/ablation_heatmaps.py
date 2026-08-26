@@ -310,7 +310,6 @@ def run_visualisation():
             tick_label.set_color(t_color)
             tick_label.set_fontweight('bold')
 
-        # Convert fixed inch margins to fractions for tight spacing
         left_frac = text_margin_inch / fig_width
         right_frac = 1.0 - (0.15 / fig_width)
         bottom_frac = bottom_margin_inch / fig_height
@@ -322,7 +321,6 @@ def run_visualisation():
             wspace=0.06
         )
 
-        # Main title positioned tightly above subplots
         full_title = f"First-Order Ablation Delta\nClaim: {topic}\nInstruction: {instr}"
         title_y = 1.0 - (0.2 / fig_height)
         fig.suptitle(full_title, fontsize=FONT_SIZE + 2, fontweight='bold', y=title_y, va='top') 
