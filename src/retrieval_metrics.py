@@ -40,20 +40,11 @@ def calculate_metrics(retrieved_indices, corpus_meta, target_topic, target_inten
     if R == 0: return None, 0.0, 0.0, 0.0, 0.0, 0, {}
     
     retrieved_relevance = []
-    rank_labels_out = {} 
     
     for i, idx in enumerate(retrieved_indices):
         relations = [(r['topic'], r['label']) for r in corpus_meta[idx]['relations']]
         is_relevant = (target_topic, target_intent) in relations
         retrieved_relevance.append(1 if is_relevant else 0)
-        
-        topics_in_doc = [r[0] for r in relations]
-        if target_topic in topics_in_doc:
-            doc_stance = "support" if (target_topic, "support") in relations else "attack"
-            rank_labels_out[f"Rank_{i+1}"] = doc_stance
-        else:
-            intents_in_doc = [r[1] for r in relations]
-            rank_labels_out[f"Rank_{i+1}"] = "Irrelevant / Correct Stance" if target_intent in intents_in_doc else "Irrelevant / Incorrect Stance"
 
     dcg = sum(rel / np.log2(i + 2) for i, rel in enumerate(retrieved_relevance))
     idcg = sum(1.0 / np.log2(i + 2) for i in range(min(len(retrieved_relevance), R)))
@@ -79,7 +70,7 @@ def calculate_metrics(retrieved_indices, corpus_meta, target_topic, target_inten
     irr_correct_at_R = irr_correct_R / cutoff if cutoff > 0 else 0.0
     irr_incorrect_at_R = irr_incorrect_R / cutoff if cutoff > 0 else 0.0
     
-    return ndcg, precision_at_R, stance_error_at_R, irr_correct_at_R, irr_incorrect_at_R, R, rank_labels_out
+    return ndcg, precision_at_R, stance_error_at_R, irr_correct_at_R, irr_incorrect_at_R, R
 
 def get_evaluated_models(csv_path):
     if not os.path.exists(csv_path): return set()
@@ -128,7 +119,6 @@ def run_evaluation():
         os.makedirs(out_dir, exist_ok=True)
         
         res_csv_path = os.path.join(out_dir, "experiment_results.csv")
-        rank_csv_path = os.path.join(out_dir, "ranking_patterns.csv")
         evaluated_models = get_evaluated_models(res_csv_path)
 
         # Build list of all outputs we expect to generate for this model
@@ -169,7 +159,6 @@ def run_evaluation():
             bm25 = BM25Okapi(tokenized_corpus)
 
         current_res = []
-        current_rank = []
         bm25_score_cache = {}
 
         for i, meta in enumerate(tqdm(query_meta, desc="Evaluating Queries")):
@@ -180,7 +169,7 @@ def run_evaluation():
             # Dense Evaluation
             if need_dense:
                 dense_top_indices = np.argsort(dense_scores, kind='stable')[::-1][:args.k]
-                ndcg, prec_R, err_R, irr_corr_R, irr_incorr_R, r_count, rank_labels = calculate_metrics(
+                ndcg, prec_R, err_R, irr_corr_R, irr_incorr_R, r_count = calculate_metrics(
                     dense_top_indices, corpus_meta, meta["topic"], meta["intent"], args.k
                 )
                 
@@ -191,10 +180,6 @@ def run_evaluation():
                         f"NDCG@{args.k}": ndcg, "Precision@R": prec_R, "Stance_Error_R": err_R,
                         "Irrelevant_Correct_Stance_R": irr_corr_R, "Irrelevant_Incorrect_Stance_R": irr_incorr_R
                     })
-                    rank_row = {"Model": model_name, "Topic": meta["topic"], "Intent": meta["intent"], "Instruction": meta["instruction"], "Instruction_Type": meta["instruction_type"], "Total_Relevant": r_count}
-                    rank_row.update(rank_labels)
-                    rank_row.update({f"Idx_{j+1}": idx for j, idx in enumerate(dense_top_indices)})
-                    current_rank.append(rank_row)
 
             # Hybrid Evaluation
             if need_hybrid:
@@ -217,7 +202,7 @@ def run_evaluation():
                         rsf_sorted_indices = np.argsort(fused_scores, kind='stable')[::-1]
                         rsf_top = rsf_sorted_indices[:args.k]
                         
-                        ndcg, prec_R, err_R, irr_corr_R, irr_incorr_R, r_count, rank_labels = calculate_metrics(
+                        ndcg, prec_R, err_R, irr_corr_R, irr_incorr_R, r_count = calculate_metrics(
                             rsf_top, corpus_meta, meta["topic"], meta["intent"], args.k
                         )
                         if ndcg is not None:
@@ -225,15 +210,10 @@ def run_evaluation():
                                 "Model": name_rsf, "Topic": meta["topic"], "Intent": meta["intent"], "Instruction": meta["instruction"], "Instruction_Type": meta["instruction_type"],
                                 f"NDCG@{args.k}": ndcg, "Precision@R": prec_R, "Stance_Error_R": err_R, "Irrelevant_Correct_Stance_R": irr_corr_R, "Irrelevant_Incorrect_Stance_R": irr_incorr_R
                             })
-                            rank_row = {"Model": name_rsf, "Topic": meta["topic"], "Intent": meta["intent"], "Instruction": meta["instruction"], "Instruction_Type": meta["instruction_type"], "Total_Relevant": r_count}
-                            rank_row.update(rank_labels)
-                            rank_row.update({f"Idx_{j+1}": idx for j, idx in enumerate(rsf_top)})
-                            current_rank.append(rank_row)
 
         # Save Checkpoint
         if current_res:
             pd.DataFrame(current_res).to_csv(res_csv_path, mode='a', header=not os.path.exists(res_csv_path), index=False)
-            pd.DataFrame(current_rank).to_csv(rank_csv_path, mode='a', header=not os.path.exists(rank_csv_path), index=False)
             print(f"Results successfully saved to {dataset_id} CSVs.")
 
     print("\nAll local evaluations complete!")
