@@ -11,11 +11,14 @@ import textwrap
 import random
 from huggingface_hub import hf_hub_download
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+RESULTS_DIR = os.path.join(SCRIPT_DIR, "..", "results")
+
 # Argument parsing
 parser = argparse.ArgumentParser(description="Generate word ablation heatmaps")
 parser.add_argument("--csv_path", type=str, required=True, 
                     help="Path to the word_ablation_results.csv file")
-parser.add_argument("--output_dir", type=str, default="./ablation_figs", 
+parser.add_argument("--output_dir", type=str, default=os.path.join(RESULTS_DIR, "ablation_heatmaps"),
                     help="Directory to save the generated heatmaps")
 parser.add_argument("--base_model_name", type=str, required=True, 
                     help="Exact name of the base model as it appears in the CSV (e.g., 'Qwen3-Embedding-8B')")
@@ -221,33 +224,57 @@ def run_visualisation():
         x_labels_wrapped = [textwrap.fill(l, X_LABEL_WRAP_WIDTH) if l != gap_col else "" for l in x_labels_text]
 
         # Plotting
-        total_lines = sum([l.count('\n') + 1 for l in y_labels_text])
-        dynamic_height = max(5, total_lines * (0.6 if args.include_doc_text else 0.4))
-        dynamic_width = max(8, len(x_axis_map) * 0.7) 
+        from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+        # Determine the maximum wrapped lines across all labels in this scenario
+        lines_per_label = [l.count('\n') + 1 for l in y_labels_text]
+        max_lines = max(lines_per_label) if lines_per_label else 1
+        row_height_inch = max(0.45, max_lines * 0.15) if args.include_doc_text else 0.40
+        col_width_inch = 0.55
         
-        fig, axes = plt.subplots(1, 3, figsize=(dynamic_width * 2, dynamic_height), gridspec_kw={'width_ratios': [1, 1, 0.05]})
-        axes[1].sharey(axes[0])
-        fig.patch.set_facecolor('white')
+        n_rows = len(all_docs)
+        n_cols = len(x_axis_map)
         
-        for ax, matrix, m_name in zip(axes[:2], [base_matrix, tuned_matrix], [args.base_model_name, args.tuned_model_name]):
+        heatmap_height = max(3.0, n_rows * row_height_inch)
+        heatmap_width = max(3.5, n_cols * col_width_inch)
+        
+        # Absolute margins in inches (independent of figure height/width)
+        top_margin_inch = 1.6
+        bottom_margin_inch = 0.85
+        text_margin_inch = 4.8 if args.include_doc_text else 1.2
+        cbar_margin_inch = 0.8
+        
+        fig_width = text_margin_inch + (heatmap_width * 2) + cbar_margin_inch
+        fig_height = heatmap_height + top_margin_inch + bottom_margin_inch
+        
+        fig, axes = plt.subplots(1, 2, figsize=(fig_width, fig_height), facecolor='white')
+        
+        for idx, (ax, matrix, m_name) in enumerate(zip(axes, [base_matrix, tuned_matrix], [args.base_model_name, args.tuned_model_name])):
             ax.set_facecolor('white') 
             mask = matrix.isnull()
+
+            annot_font_size = min(9, max(6, int(col_width_inch * 12)))
 
             sns.heatmap(
                 matrix, cmap='coolwarm_r', center=0, vmin=args.v_min, vmax=args.v_max,
                 annot=True, fmt=".2f", linewidths=0.5, linecolor='black',
-                xticklabels=x_labels_wrapped, yticklabels=y_labels_text if ax == axes[0] else False,
-                mask=mask, ax=ax, cbar=(ax == axes[1]), 
-                cbar_ax=axes[2] if ax == axes[1] else None,
-                cbar_kws={'label': 'First Order Delta'} if ax == axes[1] else None
+                annot_kws={"size": annot_font_size},
+                xticklabels=x_labels_wrapped, 
+                yticklabels=y_labels_text if idx == 0 else False,
+                mask=mask, ax=ax, cbar=False
             )
             
-            ax.set_title(f"{'Base' if ax == axes[0] else 'Tuned'} Model: {m_name}", fontsize=FONT_SIZE+2, pad=35)
-            ax.set_xlabel("", fontsize=FONT_SIZE + 1)
-            ax.set_ylabel("Documents" if ax == axes[0] else "", fontsize=FONT_SIZE + 1)
-            ax.tick_params(axis='x', rotation=45, labelsize=FONT_SIZE)
+            if idx == 1:
+                ax.set_yticks([])
+                ax.set_ylabel("")
+            else:
+                ax.set_ylabel("Documents", fontsize=FONT_SIZE + 1)
 
-            # Dynamic section headings
+            ax.set_title(f"{'Base' if idx == 0 else 'Tuned'} Model: {m_name}", fontsize=FONT_SIZE + 1.5, pad=35)
+            ax.set_xlabel("")
+            ax.tick_params(axis='x', rotation=45, labelsize=FONT_SIZE - 1)
+
+            # Section headings
             sections = {'Instruction': [], 'Claim': [], 'Chunk': []}
             for i, (_, _, sec_type) in enumerate(x_axis_map):
                 if sec_type in sections:
@@ -259,30 +286,52 @@ def run_visualisation():
                     end_idx = indices[-1]
                     center_idx = start_idx + (end_idx - start_idx) / 2
                     
-                    ax.text(center_idx + 0.5, 1.01, f"{sec_name} Word Ablation", 
+                    ax.text(center_idx + 0.5, 1.02, f"{sec_name}", 
                             ha='center', va='bottom', transform=ax.get_xaxis_transform(),
-                            fontweight='bold', fontsize=FONT_SIZE, color='black', 
-                            bbox=dict(facecolor='white', edgecolor='none', alpha=0.5))
+                            fontweight='bold', fontsize=FONT_SIZE - 0.5, color='black', 
+                            bbox=dict(facecolor='white', edgecolor='none', alpha=0.6))
 
-        # Manual tags formatting
+        divider = make_axes_locatable(axes[1])
+        cax = divider.append_axes("right", size="5%", pad=0.10)
+        sm = plt.cm.ScalarMappable(cmap='coolwarm_r', norm=plt.Normalize(vmin=args.v_min, vmax=args.v_max))
+        sm.set_array([])
+        cbar = fig.colorbar(sm, cax=cax)
+        cbar.set_label('First-Order Ablation Delta', fontsize=FONT_SIZE - 0.5)
+
+        # Style Y-axis labels
         axes[0].set_yticks(np.arange(len(y_labels_text)) + 0.5)
-        axes[0].set_yticklabels(y_labels_text, rotation=0, ha='right', fontsize=9)
+        axes[0].set_yticklabels(
+            y_labels_text, rotation=0, ha='right', va='center', 
+            fontsize=8.0, linespacing=1.05
+        )
         
         for tick_label, tag_type in zip(axes[0].get_yticklabels(), y_tags_types):
             _, t_color = get_tag_info(tag_type)
             tick_label.set_color(t_color)
             tick_label.set_fontweight('bold')
 
-        full_title = f"First-Order Ablation Delta\nClaim: {topic}\nInstruction: {instr}"
-        plt.suptitle(full_title, fontsize=FONT_SIZE + 4, fontweight='bold', y=1.05) 
+        # Convert fixed inch margins to fractions for tight spacing
+        left_frac = text_margin_inch / fig_width
+        right_frac = 1.0 - (0.15 / fig_width)
+        bottom_frac = bottom_margin_inch / fig_height
+        top_frac = 1.0 - (top_margin_inch / fig_height)
         
-        plt.tight_layout()
+        plt.subplots_adjust(
+            left=left_frac, right=right_frac, 
+            top=top_frac, bottom=bottom_frac, 
+            wspace=0.06
+        )
+
+        # Main title positioned tightly above subplots
+        full_title = f"First-Order Ablation Delta\nClaim: {topic}\nInstruction: {instr}"
+        title_y = 1.0 - (0.2 / fig_height)
+        fig.suptitle(full_title, fontsize=FONT_SIZE + 2, fontweight='bold', y=title_y, va='top') 
         
         safe_topic = safe_filename(topic)[:30]
         safe_instr = safe_filename(instr)[:30]
         filename = f"ablation_{safe_topic}_{safe_instr}.png"
         
-        plt.savefig(os.path.join(args.output_dir, filename), dpi=150, bbox_inches='tight')
+        plt.savefig(os.path.join(args.output_dir, filename), dpi=200, bbox_inches='tight')
         plt.close()
 
     print(f"\nAll plots saved to: {args.output_dir}")
