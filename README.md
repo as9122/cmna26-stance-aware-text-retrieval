@@ -18,7 +18,7 @@ We recommend using a virtual environment (Python 3.10+).
     ```
 ##  Pipeline Execution
 
-The codebase is modular. You can run the entire pipeline from scratch, or simply use our pre-trained Hugging Face adapters to instantly reproduce the evaluation metrics.
+The codebase is modular. You can run the entire pipeline from scratch, or simply use our pre-trained Hugging Face adapters to reproduce the evaluation metrics.
 
 ### Fine-Tuning (`src/tune.py`)
 
