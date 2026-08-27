@@ -99,25 +99,27 @@ def load_model_helper(base_arch, adapter_path):
     model.eval()
     return model, config["formatter"]
 
-def calculate_metrics(retrieved_indices, corpus, target_topic, target_intent):
+def calculate_metrics(retrieved_indices, corpus, target_topic, target_intent, cutoff_k):
     R = sum(1 for doc in corpus if any(r['topic'] == target_topic and r['label'] == target_intent for r in doc['relations']))
     if R == 0: return None, 0.0, 0.0, 0.0, 0.0, 0
     
     retrieved_relevance = []
-    
     for i, idx in enumerate(retrieved_indices):
         relations = [(r['topic'], r['label']) for r in corpus[idx]['relations']]
         is_relevant = (target_topic, target_intent) in relations
         retrieved_relevance.append(1 if is_relevant else 0)
 
-    dcg = sum(rel / np.log2(i + 2) for i, rel in enumerate(retrieved_relevance))
-    idcg = sum(1.0 / np.log2(i + 2) for i in range(min(len(retrieved_relevance), R)))
+    ndcg_relevance = retrieved_relevance[:cutoff_k]
+    dcg = sum(rel / np.log2(i + 2) for i, rel in enumerate(ndcg_relevance))
+    
+    idcg_limit = min(R, cutoff_k) 
+    idcg = sum(1.0 / np.log2(i + 2) for i in range(idcg_limit))
     ndcg = (dcg / idcg) if idcg > 0 else 0.0
 
-    cutoff = min(R, len(retrieved_indices))
+    r_cutoff = min(R, len(retrieved_indices))
     correct_top_R = stance_err_R = irr_correct_R = irr_incorrect_R = 0
 
-    for i in range(cutoff):
+    for i in range(r_cutoff):
         relations = [(r['topic'], r['label']) for r in corpus[retrieved_indices[i]]['relations']]
         topics_in_doc = [r[0] for r in relations]
         intents_in_doc = [r[1] for r in relations]
@@ -129,12 +131,12 @@ def calculate_metrics(retrieved_indices, corpus, target_topic, target_intent):
             if target_intent in intents_in_doc: irr_correct_R += 1
             else: irr_incorrect_R += 1
 
-    precision_at_R = correct_top_R / cutoff if cutoff > 0 else 0.0
-    stance_error_at_R = stance_err_R / cutoff if cutoff > 0 else 0.0
-    irr_correct_at_R = irr_correct_R / cutoff if cutoff > 0 else 0.0
-    irr_incorrect_at_R = irr_incorrect_R / cutoff if cutoff > 0 else 0.0
+    precision_at_R = correct_top_R / R
+    stance_error_at_R = stance_err_R / R
+    irr_correct_at_R = irr_correct_R / R
+    irr_incorrect_at_R = irr_incorrect_R / R
     
-    return ndcg, precision_at_R, stance_error_at_R, irr_correct_at_R, irr_incorrect_at_R, R
+    return ndcg, precision_at_R, stance_error_at_R, irr_correct_at_R, irr_incorrect_at_R
 
 def run_evaluation():
     print(f"Loading Global Reranker: {args.reranker}...")
@@ -223,22 +225,18 @@ def run_evaluation():
             top_n_results = torch.topk(cos_scores, k=retrieve_n)
             top_n_indices = top_n_results.indices.cpu().numpy()
             
-            # STAGE 2: Cross-Encoder Reranking (Top K)
+            # STAGE 2: Cross-Encoder Reranking 
             query_text = all_queries[i]
             pairs = [[query_text, corpus_texts[idx]] for idx in top_n_indices]
             
             rerank_scores = reranker.predict(pairs, batch_size=32, show_progress_bar=False)
             
             reranked_relative_indices = np.argsort(rerank_scores, kind='stable')[::-1]
-            
-            final_k = min(args.k, len(reranked_relative_indices))
-            top_k_relative_indices = reranked_relative_indices[:final_k]
-            
-            top_indices = [top_n_indices[idx] for idx in top_k_relative_indices]
+            top_indices = [top_n_indices[idx] for idx in reranked_relative_indices]
             
             # STAGE 3: Metrics
             metrics = calculate_metrics(
-                top_indices, corpus, target_topic=meta["topic"], target_intent=meta["intent"]
+                top_indices, corpus, target_topic=meta["topic"], target_intent=meta["intent"], cutoff_k=args.k
             )
             ndcg, prec_R, err_R, irr_corr_R, irr_incorr_R = metrics
 

@@ -37,7 +37,7 @@ PRECOMPUTED_DIR = os.path.join(RESULTS_DIR, "precomputed_vectors")
 # Helper Functions
 def calculate_metrics(retrieved_indices, corpus_meta, target_topic, target_intent, cutoff_k):
     R = sum(1 for doc in corpus_meta if any(r['topic'] == target_topic and r['label'] == target_intent for r in doc['relations']))
-    if R == 0: return None, 0.0, 0.0, 0.0, 0.0, 0, {}
+    if R == 0: return None, 0.0, 0.0, 0.0, 0.0, 0
     
     retrieved_relevance = []
     
@@ -46,14 +46,17 @@ def calculate_metrics(retrieved_indices, corpus_meta, target_topic, target_inten
         is_relevant = (target_topic, target_intent) in relations
         retrieved_relevance.append(1 if is_relevant else 0)
 
-    dcg = sum(rel / np.log2(i + 2) for i, rel in enumerate(retrieved_relevance))
-    idcg = sum(1.0 / np.log2(i + 2) for i in range(min(len(retrieved_relevance), R)))
+    ndcg_relevance = retrieved_relevance[:cutoff_k]
+    dcg = sum(rel / np.log2(i + 2) for i, rel in enumerate(ndcg_relevance))
+    
+    idcg_limit = min(R, cutoff_k)
+    idcg = sum(1.0 / np.log2(i + 2) for i in range(idcg_limit))
     ndcg = (dcg / idcg) if idcg > 0 else 0.0
 
-    cutoff = min(R, len(retrieved_indices))
+    r_cutoff = min(R, len(retrieved_indices))
     correct_top_R = stance_err_R = irr_correct_R = irr_incorrect_R = 0
 
-    for i in range(cutoff):
+    for i in range(r_cutoff):
         relations = [(r['topic'], r['label']) for r in corpus_meta[retrieved_indices[i]]['relations']]
         topics_in_doc = [r[0] for r in relations]
         intents_in_doc = [r[1] for r in relations]
@@ -65,12 +68,12 @@ def calculate_metrics(retrieved_indices, corpus_meta, target_topic, target_inten
             if target_intent in intents_in_doc: irr_correct_R += 1
             else: irr_incorrect_R += 1
 
-    precision_at_R = correct_top_R / cutoff if cutoff > 0 else 0.0
-    stance_error_at_R = stance_err_R / cutoff if cutoff > 0 else 0.0
-    irr_correct_at_R = irr_correct_R / cutoff if cutoff > 0 else 0.0
-    irr_incorrect_at_R = irr_incorrect_R / cutoff if cutoff > 0 else 0.0
+    precision_at_R = correct_top_R / R
+    stance_error_at_R = stance_err_R / R
+    irr_correct_at_R = irr_correct_R / R
+    irr_incorrect_at_R = irr_incorrect_R / R
     
-    return ndcg, precision_at_R, stance_error_at_R, irr_correct_at_R, irr_incorrect_at_R, R
+    return ndcg, precision_at_R, stance_error_at_R, irr_correct_at_R, irr_incorrect_at_R
 
 def get_evaluated_models(csv_path):
     if not os.path.exists(csv_path): return set()
@@ -168,8 +171,8 @@ def run_evaluation():
             
             # Dense Evaluation
             if need_dense:
-                dense_top_indices = np.argsort(dense_scores, kind='stable')[::-1][:args.k]
-                ndcg, prec_R, err_R, irr_corr_R, irr_incorr_R, r_count = calculate_metrics(
+                dense_top_indices = np.argsort(dense_scores, kind='stable')[::-1]
+                ndcg, prec_R, err_R, irr_corr_R, irr_incorr_R = calculate_metrics(
                     dense_top_indices, corpus_meta, meta["topic"], meta["intent"], args.k
                 )
                 
@@ -200,10 +203,9 @@ def run_evaluation():
                         fused_scores = norm_dense + (float(lam) * norm_bm25)
                         
                         rsf_sorted_indices = np.argsort(fused_scores, kind='stable')[::-1]
-                        rsf_top = rsf_sorted_indices[:args.k]
                         
-                        ndcg, prec_R, err_R, irr_corr_R, irr_incorr_R, r_count = calculate_metrics(
-                            rsf_top, corpus_meta, meta["topic"], meta["intent"], args.k
+                        ndcg, prec_R, err_R, irr_corr_R, irr_incorr_R = calculate_metrics(
+                            rsf_sorted_indices, corpus_meta, meta["topic"], meta["intent"], args.k
                         )
                         if ndcg is not None:
                             current_res.append({

@@ -35,14 +35,14 @@ BASE_MODELS_TO_PLOT = [
     "BGE-Large_homogeneous",
     "BGE-Large_mixed",
     "BGE-Large_mixed_aug",
-    # "Instructor-XL_base",
-    # "Instructor-XL_homogeneous",
-    # "Instructor-XL_mixed",
-    # "Instructor-XL_mixed_aug",
-    # "Qwen3-Embedding-8B_base",
-    # "Qwen3-Embedding-8B_homogeneous",
-    # "Qwen3-Embedding-8B_mixed",
-    # "Qwen3-Embedding-8B_mixed_aug"
+    "Instructor-XL_base",
+    "Instructor-XL_homogeneous",
+    "Instructor-XL_mixed",
+    "Instructor-XL_mixed_aug",
+    "Qwen3-Embedding-8B_base",
+    "Qwen3-Embedding-8B_homogeneous",
+    "Qwen3-Embedding-8B_mixed",
+    "Qwen3-Embedding-8B_mixed_aug"
 ]
 
 # 2. Define how they should look on the y-axis
